@@ -9,8 +9,14 @@ import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.BodyDef.BodyType;
 import com.badlogic.gdx.physics.box2d.BodyDef;
 import com.badlogic.gdx.physics.box2d.CircleShape;
+import com.badlogic.gdx.physics.box2d.Contact;
+import com.badlogic.gdx.physics.box2d.ContactImpulse;
+import com.badlogic.gdx.physics.box2d.ContactListener;
 import com.badlogic.gdx.physics.box2d.EdgeShape;
+import com.badlogic.gdx.physics.box2d.Fixture;
 import com.badlogic.gdx.physics.box2d.FixtureDef;
+import com.badlogic.gdx.physics.box2d.Manifold;
+import com.badlogic.gdx.physics.box2d.PolygonShape;
 import com.badlogic.gdx.physics.box2d.World;
 import norfenstein.ld29.RenderableBody.FillType;
 import norfenstein.util.entities.EntityStore.Entity;
@@ -22,17 +28,27 @@ public class GameScreen extends ViewportScreen {
 	private EntityStore entityStore;
 	private ShapeRenderSystem shapeRenderSystem;
 
-	private Vector2 tempVector = new Vector2();
-	private Body birdBody;
-	private static final float MAX_FLAP_STRENGTH = 40.0f;
-		private static final float FLAP_REGEN_TIME = 0.7f;
+	private final float UNITS_PER_SCREEN = 30f;
+	private final float WATER_DEPTH = 8f;
+	private final float MAX_FLAP_STRENGTH = 40f;
+	private final float FLAP_REGEN_TIME = 0.7f;
+	private final float GRAVITY = 15f;
+
+	private final short COLLISION_NONE  = 0;
+	private final short COLLISION_WALL  = 1 << 0;
+	private final short COLLISION_BIRD  = 1 << 1;
+	private final short COLLISION_FISH  = 1 << 2;
+	private final short COLLISION_WATER = 1 << 3;
+
 	private float flapStrength;
+	private Body birdBody;
+	private Body waterBody;
 
 	public void create() {
-		initializeViewport(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), FixedAxis.VERTICAL, 30);
-		System.out.println("viewportWidth: " + getViewport().getViewportWidth() + ", viewportHeight: " + getViewport().getViewportHeight() + ", pixelsPerUnit: " + getPixelsPerUnit());
+		initializeViewport(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), FixedAxis.HORIZONTAL, UNITS_PER_SCREEN);
 
-		world = new World(new Vector2(0, -15f), true);
+		world = new World(new Vector2(0, -GRAVITY), true);
+		world.setContactListener(new CollisionHandler());
 
 		entityStore = new EntityStore();
 
@@ -43,6 +59,7 @@ public class GameScreen extends ViewportScreen {
 		flapStrength = MAX_FLAP_STRENGTH;
 		addBird();
 		addWalls();
+		addWater();
 	}
 
 	public void dispose() {
@@ -57,9 +74,6 @@ public class GameScreen extends ViewportScreen {
 			flapStrength += MAX_FLAP_STRENGTH * delta / FLAP_REGEN_TIME;
 			if (flapStrength > MAX_FLAP_STRENGTH) flapStrength = MAX_FLAP_STRENGTH;
 		}
-	}
-
-	@Override public void processInput(float delta) {
 	}
 
 	@Override public void render(float delta) {
@@ -78,23 +92,11 @@ public class GameScreen extends ViewportScreen {
 			case Input.Keys.Q:
 				Gdx.app.exit();
 				return true;
+
 			case Input.Keys.UP:
-				System.out.println("flapStrength: " + flapStrength);
+			case Input.Keys.SPACE:
 				birdBody.applyLinearImpulse(new Vector2(0, flapStrength), birdBody.getWorldCenter(), true);
 				flapStrength = 0f;
-				return true;
-			case Input.Keys.LEFT:
-				System.out.println("flapStrength: " + flapStrength);
-				birdBody.applyLinearImpulse(new Vector2(0, flapStrength).rotate(30f), birdBody.getWorldCenter(), true);
-				flapStrength = 0f;
-				return true;
-			case Input.Keys.RIGHT:
-				System.out.println("flapStrength: " + flapStrength);
-				birdBody.applyLinearImpulse(new Vector2(0, flapStrength).rotate(-30f), birdBody.getWorldCenter(), true);
-				flapStrength = 0f;
-				return true;
-			case Input.Keys.DOWN:
-				birdBody.applyLinearImpulse(new Vector2(0, -60f), birdBody.getWorldCenter(), true);
 				return true;
 		}
 
@@ -108,8 +110,8 @@ public class GameScreen extends ViewportScreen {
 		FixtureDef fixtureDef = new FixtureDef();
 		fixtureDef.shape = shape;
 		fixtureDef.isSensor = false;
-		//fixtureDef.filter.categoryBits = categoryBits;
-		//fixtureDef.filter.maskBits = maskBits;
+		fixtureDef.filter.categoryBits = COLLISION_BIRD;
+		fixtureDef.filter.maskBits = COLLISION_WALL | COLLISION_WATER | COLLISION_FISH;
 		fixtureDef.density = 1.0f;
 		fixtureDef.restitution = 1.0f;
 		fixtureDef.friction = 0;
@@ -133,9 +135,9 @@ public class GameScreen extends ViewportScreen {
 
 		Entity entity = entityStore.new Entity(physicsBody, renderableBody);
 		body.setUserData(entity);
+		//body.applyLinearImpulse(new Vector2(0, flapStrength).rotate(-30f), body.getWorldCenter(), true);
 
 		birdBody = body;
-		birdBody.applyLinearImpulse(new Vector2(0, flapStrength).rotate(-30f), birdBody.getWorldCenter(), true);
 	}
 
 	private void addWalls() {
@@ -172,8 +174,8 @@ public class GameScreen extends ViewportScreen {
 		FixtureDef fixtureDef = new FixtureDef();
 		fixtureDef.shape = shape;
 		fixtureDef.isSensor = false;
-		//fixtureDef.filter.categoryBits = categoryBits;
-		//fixtureDef.filter.maskBits = maskBits;
+		fixtureDef.filter.categoryBits = COLLISION_WALL;
+		fixtureDef.filter.maskBits = COLLISION_BIRD;
 		fixtureDef.density = 1.0f;
 		fixtureDef.restitution = 1.0f;
 		fixtureDef.friction = 0f;
@@ -198,49 +200,61 @@ public class GameScreen extends ViewportScreen {
 		body.setUserData(entity);
 	}
 
-	/*
-	public static Body createBody(World world, BodyType bodyType, boolean isSensor, short categoryBits, short maskBits, float x, float y, Shape shape) {
-		BodyDef bodyDef = new BodyDef();
-		bodyDef.type = bodyType;
-		bodyDef.position.x = x;
-		bodyDef.position.y = y;
-		Body body = world.createBody(bodyDef);
+	private void addWater() {
+		PolygonShape shape = new PolygonShape();
+		shape.setAsBox(
+			pixelsToUnits(getViewport().getViewportWidth() / 2f),
+			WATER_DEPTH);
 
 		FixtureDef fixtureDef = new FixtureDef();
 		fixtureDef.shape = shape;
-		fixtureDef.isSensor = isSensor;
-		fixtureDef.filter.categoryBits = categoryBits;
-		fixtureDef.filter.maskBits = maskBits;
-		fixtureDef.density = 1;
-		fixtureDef.restitution = 0.5f;
+		fixtureDef.isSensor = true;
+		fixtureDef.filter.categoryBits = COLLISION_WATER;
+		fixtureDef.filter.maskBits = COLLISION_BIRD;
+
+		BodyDef bodyDef = new BodyDef();
+		bodyDef.type = BodyType.StaticBody;
+		bodyDef.position.x = 0;
+		bodyDef.position.y = -pixelsToUnits(getViewport().getViewportHeight() / 2f) + WATER_DEPTH;
+
+		Body body = world.createBody(bodyDef);
 		body.createFixture(fixtureDef);
 
-		return body;
-	}
 
-	public Body createCircle(World world, BodyType bodyType, boolean isSensor, short categoryBits, short maskBits, float x, float y, float radius) {
-		CircleShape shape = new CircleShape();
-		shape.setRadius(radius);
-
-		Body body = createBody(world, bodyType, isSensor, categoryBits, maskBits, x, y, shape);
-
-		shape.dispose();
-
-		return body;
-	}
-
-	public Entity createBodyEntity(EntityStore entityStore, Body body, FillType fill, Color color) {
 		PhysicsBody physicsBody = new PhysicsBody();
 		physicsBody.body = body;
 
 		RenderableBody renderableBody = new RenderableBody();
-		renderableBody.fill = fill;
-		renderableBody.color = color;
+		renderableBody.fill = FillType.LINE;
+		renderableBody.color = Color.CYAN;
 
 		Entity entity = entityStore.new Entity(physicsBody, renderableBody);
 		body.setUserData(entity);
 
-		return entity;
+		waterBody = body;
 	}
-	*/
+
+	private class CollisionHandler implements ContactListener {
+		@Override public void preSolve(Contact contact, Manifold oldManifold) { }
+
+		@Override public void postSolve(Contact contact, ContactImpulse impulse) { }
+
+		@Override public void beginContact(Contact contact) {
+			System.out.println("beginContact");
+			Body bodyA = contact.getFixtureA().getBody();
+			Body bodyB = contact.getFixtureB().getBody();
+
+			if ((birdBody == bodyA && waterBody == bodyB) || (birdBody == bodyB && waterBody == bodyA)) {
+			}
+		}
+
+		@Override public void endContact(Contact contact) {
+			System.out.println("endContact");
+			Body bodyA = contact.getFixtureA().getBody();
+			Body bodyB = contact.getFixtureB().getBody();
+
+			if ((birdBody == bodyA && waterBody == bodyB) || (birdBody == bodyB && waterBody == bodyA)) {
+			}
+		}
+	}
 }
