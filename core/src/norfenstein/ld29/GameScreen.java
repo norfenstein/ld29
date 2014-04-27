@@ -48,6 +48,7 @@ public class GameScreen extends ViewportScreen {
 	private Body waterBody;
 	private float flapImpulse;
 	private Joint divingJoint;
+	private BuoyancyController buoyancyController;
 
 	public void create() {
 		initializeViewport(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), FixedAxis.HORIZONTAL, UNITS_PER_SCREEN);
@@ -68,6 +69,16 @@ public class GameScreen extends ViewportScreen {
 		addBird();
 		addWalls();
 		addWater();
+
+		buoyancyController = new BuoyancyController(
+			new Vector2(0, 1), //surface normal
+			new Vector2(0, 0), //fluid velocity
+			world.getGravity(),
+			0, //surface height
+			3f, //fluid density
+			3f, //linear drag
+			2f //angular drag
+		);
 	}
 
 	public void dispose() {
@@ -88,6 +99,8 @@ public class GameScreen extends ViewportScreen {
 				destroyDivingJoint();
 			}
 		}
+
+		buoyancyController.step();
 	}
 
 	@Override public void render(float delta) {
@@ -356,6 +369,7 @@ public class GameScreen extends ViewportScreen {
 			Body bodyB = contact.getFixtureB().getBody();
 
 			if ((birdBody == bodyA && waterBody == bodyB) || (birdBody == bodyB && waterBody == bodyA)) {
+				buoyancyController.addBody(birdBody);
 			}
 		}
 
@@ -364,6 +378,7 @@ public class GameScreen extends ViewportScreen {
 			Body bodyB = contact.getFixtureB().getBody();
 
 			if ((birdBody == bodyA && waterBody == bodyB) || (birdBody == bodyB && waterBody == bodyA)) {
+				buoyancyController.removeBody(birdBody);
 			}
 		}
 	}
