@@ -29,6 +29,7 @@ import norfenstein.util.game.ViewportScreen;
 public class GameScreen extends ViewportScreen {
 	private enum FishState {
 		GONE,
+		EATEN,
 		ALIVE,
 		SPAWNABLE
 	}
@@ -36,9 +37,10 @@ public class GameScreen extends ViewportScreen {
 	private World world;
 	private EntityStore entityStore;
 	private ShapeRenderSystem shapeRenderSystem;
+	private FishSystem fishSystem;
 
 	private final float UNITS_PER_SCREEN = 40f;
-	private final float WATER_DEPTH = 8f;
+	private final float WATER_DEPTH = 10f;
 	private final float MAX_FLAP_IMPULSE = 40f;
 	private final float FLAP_REGEN_TIME = 0.7f;
 	private final float DIVE_FORCE = 50f;
@@ -71,8 +73,10 @@ public class GameScreen extends ViewportScreen {
 		entityStore = new EntityStore();
 
 		shapeRenderSystem = new ShapeRenderSystem(entityStore, getCamera());
+		fishSystem = new FishSystem(entityStore);
 
 		entityStore.addListener(shapeRenderSystem);
+		entityStore.addListener(fishSystem);
 
 		divingJoint = null;
 		flapImpulse = MAX_FLAP_IMPULSE;
@@ -118,11 +122,17 @@ public class GameScreen extends ViewportScreen {
 		switch (fishState) {
 			case GONE:
 				destroyFish();
+				addFish();
+				break;
+			case EATEN:
+				destroyFish();
 				break;
 			case SPAWNABLE:
 				addFish();
 				break;
 		}
+
+		fishSystem.process(delta);
 	}
 
 	@Override public void render(float delta) {
@@ -234,8 +244,11 @@ public class GameScreen extends ViewportScreen {
 	}
 
 	private void addFish() {
+		float fishSize = MathUtils.random();
+		boolean goingRight = MathUtils.randomBoolean();
+
 		CircleShape shape = new CircleShape();
-		shape.setRadius(MathUtils.random(0.8f, 2f));
+		shape.setRadius(0.75f + 1.5f * fishSize);
 
 		FixtureDef fixtureDef = new FixtureDef();
 		fixtureDef.shape = shape;
@@ -249,8 +262,11 @@ public class GameScreen extends ViewportScreen {
 		BodyDef bodyDef = new BodyDef();
 		bodyDef.type = BodyType.DynamicBody;
 		bodyDef.fixedRotation = true;
-		bodyDef.position.x = 0;
-		bodyDef.position.y = waterBody.getPosition().y;
+		bodyDef.position.x = goingRight ?
+			-pixelsToUnits(getViewport().getViewportWidth()) / 2 :
+			pixelsToUnits(getViewport().getViewportWidth()) / 2;
+		System.out.println("goingRight: " + goingRight + " " + bodyDef.position.x);
+		bodyDef.position.y = waterBody.getPosition().y + WATER_DEPTH / 2 - fishSize * WATER_DEPTH;
 
 		Body body = world.createBody(bodyDef);
 		body.createFixture(fixtureDef);
@@ -262,7 +278,13 @@ public class GameScreen extends ViewportScreen {
 		renderableBody.fill = FillType.LINE;
 		renderableBody.color = Color.BLUE;
 
-		Entity entity = entityStore.new Entity(physicsBody, renderableBody);
+		Fish fish = new Fish();
+		fish.timer = 0;
+		fish.direction = goingRight ? 1 : -1;
+		fish.minImpulse = 30f + fishSize * 60;
+		fish.maxImpulse = 60f + fishSize * 120;
+
+		Entity entity = entityStore.new Entity(physicsBody, renderableBody, fish);
 		body.setUserData(entity);
  
 		fishBody = body;
@@ -446,7 +468,7 @@ public class GameScreen extends ViewportScreen {
 			} else if (bodyB == waterBody) {
 				buoyancyController.addBody(bodyA);
 			} else if ((bodyA == birdBody && bodyB == fishBody) || (bodyA == fishBody && bodyB == birdBody)) {
-				fishState = FishState.GONE;
+				fishState = FishState.EATEN;
 			}
 		}
 
@@ -458,14 +480,14 @@ public class GameScreen extends ViewportScreen {
 
 			if (bodyA == waterBody) {
 				buoyancyController.removeBody(bodyB);
-				if (bodyB == birdBody && fishState == FishState.GONE) {
+				if (bodyB == birdBody && fishState == FishState.EATEN) {
 					fishState = FishState.SPAWNABLE;
 				} else if (bodyB == fishBody) {
 					fishState = FishState.GONE;
 				}
 			} else if (bodyB == waterBody) {
 				buoyancyController.removeBody(bodyA);
-				if (bodyA == birdBody && fishState == FishState.GONE) {
+				if (bodyA == birdBody && fishState == FishState.EATEN) {
 					fishState = FishState.SPAWNABLE;
 				} else if (bodyA == fishBody) {
 					fishState = FishState.GONE;
