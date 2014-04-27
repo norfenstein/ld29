@@ -29,15 +29,13 @@ public abstract class ViewportScreen extends AbstractSwitchableScreen {
 		this.fixedAxis = fixedAxis;
 		switch (this.fixedAxis) {
 			case NONE:
-				viewport = width >= height ?
-					new FillViewport(width, width) :
-					new FillViewport(height, height);
+				viewport = new FillViewport(unitsPerScreen, unitsPerScreen);
 				break;
 			case HORIZONTAL:
-				viewport = new ExtendViewport(width, height, width, 0);
+				viewport = new ExtendViewport(unitsPerScreen, (height / width * unitsPerScreen), unitsPerScreen, 0);
 				break;
 			case VERTICAL:
-				viewport = new ExtendViewport(width, height, 0, height);
+				viewport = new ExtendViewport((width / height * unitsPerScreen), unitsPerScreen, 0, unitsPerScreen);
 				break;
 		}
 
@@ -89,6 +87,14 @@ public abstract class ViewportScreen extends AbstractSwitchableScreen {
 		} else {
 			pixelsPerUnit = 1;
 		}
+	}
+
+	protected final float pixelsToUnits(float pixels) {
+		return pixels / pixelsPerUnit;
+	}
+
+	protected final float unitsToPixels(float units) {
+		return units * pixelsPerUnit;
 	}
 }
 
