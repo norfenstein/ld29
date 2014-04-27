@@ -61,7 +61,7 @@ public final class BuoyancyController {
 	}
 
 	private boolean applyToFixture(Fixture fixture) {
-		if (fixture.isSensor() || fixture.getDensity() == 0) {
+		if (fixture.getDensity() == 0) {
 			return false;
 		}
 

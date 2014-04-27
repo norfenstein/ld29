@@ -4,6 +4,7 @@ import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
+import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.BodyDef.BodyType;
@@ -26,6 +27,12 @@ import norfenstein.util.entities.EntityStore;
 import norfenstein.util.game.ViewportScreen;
 
 public class GameScreen extends ViewportScreen {
+	private enum FishState {
+		GONE,
+		ALIVE,
+		SPAWNABLE
+	}
+
 	private World world;
 	private EntityStore entityStore;
 	private ShapeRenderSystem shapeRenderSystem;
@@ -34,8 +41,10 @@ public class GameScreen extends ViewportScreen {
 	private final float WATER_DEPTH = 8f;
 	private final float MAX_FLAP_IMPULSE = 40f;
 	private final float FLAP_REGEN_TIME = 0.7f;
-	private final float DIVE_FORCE = 100f;
+	private final float DIVE_FORCE = 50f;
 	private final float GRAVITY = 15f;
+	private final float WATER_DENSITY = 2f;
+	private final float WATER_DRAG = 1.5f;
 
 	private final short COLLISION_NONE  = 0;
 	private final short COLLISION_WALL  = 1 << 0;
@@ -46,9 +55,12 @@ public class GameScreen extends ViewportScreen {
 	private Body anchorBody; //static body without fixtures for connecting joints to the world
 	private Body birdBody;
 	private Body waterBody;
+	private Body fishBody;
+	private Entity fishEntity;
 	private float flapImpulse;
 	private Joint divingJoint;
 	private BuoyancyController buoyancyController;
+	private FishState fishState;
 
 	public void create() {
 		initializeViewport(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), FixedAxis.HORIZONTAL, UNITS_PER_SCREEN);
@@ -64,10 +76,11 @@ public class GameScreen extends ViewportScreen {
 
 		divingJoint = null;
 		flapImpulse = MAX_FLAP_IMPULSE;
+		fishState = FishState.SPAWNABLE;
 
 		addAnchor();
-		addBird();
 		addWalls();
+		addBird();
 		addWater();
 
 		buoyancyController = new BuoyancyController(
@@ -75,9 +88,9 @@ public class GameScreen extends ViewportScreen {
 			new Vector2(0, 0), //fluid velocity
 			world.getGravity(),
 			0, //surface height
-			3f, //fluid density
-			3f, //linear drag
-			2f //angular drag
+			WATER_DENSITY, //fluid density
+			WATER_DRAG, //linear drag
+			0f //angular drag
 		);
 	}
 
@@ -101,6 +114,15 @@ public class GameScreen extends ViewportScreen {
 		}
 
 		buoyancyController.step();
+
+		switch (fishState) {
+			case GONE:
+				destroyFish();
+				break;
+			case SPAWNABLE:
+				addFish();
+				break;
+		}
 	}
 
 	@Override public void render(float delta) {
@@ -202,13 +224,63 @@ public class GameScreen extends ViewportScreen {
 		physicsBody.body = body;
 
 		RenderableBody renderableBody = new RenderableBody();
-		renderableBody.fill = FillType.DIRECTED;
+		renderableBody.fill = FillType.LINE;
 		renderableBody.color = Color.WHITE;
 
 		Entity entity = entityStore.new Entity(physicsBody, renderableBody);
 		body.setUserData(entity);
 
 		birdBody = body;
+	}
+
+	private void addFish() {
+		CircleShape shape = new CircleShape();
+		shape.setRadius(MathUtils.random(0.8f, 2f));
+
+		FixtureDef fixtureDef = new FixtureDef();
+		fixtureDef.shape = shape;
+		fixtureDef.isSensor = true;
+		fixtureDef.filter.categoryBits = COLLISION_FISH;
+		fixtureDef.filter.maskBits = COLLISION_WALL | COLLISION_WATER | COLLISION_BIRD;
+		fixtureDef.density = WATER_DENSITY; //fish should have neutral buoyancy
+		fixtureDef.restitution = 0.0f;
+		fixtureDef.friction = 0;
+
+		BodyDef bodyDef = new BodyDef();
+		bodyDef.type = BodyType.DynamicBody;
+		bodyDef.fixedRotation = true;
+		bodyDef.position.x = 0;
+		bodyDef.position.y = waterBody.getPosition().y;
+
+		Body body = world.createBody(bodyDef);
+		body.createFixture(fixtureDef);
+
+		PhysicsBody physicsBody = new PhysicsBody();
+		physicsBody.body = body;
+
+		RenderableBody renderableBody = new RenderableBody();
+		renderableBody.fill = FillType.LINE;
+		renderableBody.color = Color.BLUE;
+
+		Entity entity = entityStore.new Entity(physicsBody, renderableBody);
+		body.setUserData(entity);
+ 
+		fishBody = body;
+		fishEntity = entity;
+
+		fishState = FishState.ALIVE;
+	}
+
+	private void destroyFish() {
+		if (fishEntity != null) {
+			entityStore.removeEntity(fishEntity);
+			fishEntity = null;
+		}
+
+		if (fishBody != null) {
+			world.destroyBody(fishBody);
+			fishBody = null;
+		}
 	}
 
 	private void addWalls() {
@@ -287,7 +359,7 @@ public class GameScreen extends ViewportScreen {
 		fixtureDef.shape = shape;
 		fixtureDef.isSensor = true;
 		fixtureDef.filter.categoryBits = COLLISION_WATER;
-		fixtureDef.filter.maskBits = COLLISION_BIRD;
+		fixtureDef.filter.maskBits = COLLISION_BIRD | COLLISION_FISH;
 
 		BodyDef bodyDef = new BodyDef();
 		bodyDef.type = BodyType.StaticBody;
@@ -314,6 +386,7 @@ public class GameScreen extends ViewportScreen {
 	private void addDivingJoint() {
 		if (birdBody.getLinearVelocity().y >= 0) return;
 
+		float fishX = fishBody != null ? fishBody.getPosition().x : 0f;
 		float fieldWidth = pixelsToUnits(getViewport().getViewportWidth());
 		float fieldEdgeX = fieldWidth / 2;
 		float fieldHeight = pixelsToUnits(getViewport().getViewportHeight());
@@ -326,13 +399,13 @@ public class GameScreen extends ViewportScreen {
 		float idealRadius = birdY - targetY;
 
 		float anchorX = 0f;
-		if (birdX <= 0) { //going to the right
+		if (birdX <= fishX) { //going to the right
 			if (birdX + idealRadius * 2 < fieldEdgeX - bufferSize) {
 				anchorX = birdX + idealRadius;
 			} else {
 				anchorX = birdX + (fieldEdgeX - birdX) / 2 - bufferSize;
 			}
-		} else if (birdX > 0) { //going to the left
+		} else if (birdX > fishX) { //going to the left
 			if (birdX - idealRadius * 2 > -fieldEdgeX + bufferSize) {
 				anchorX = birdX - idealRadius;
 			} else {
@@ -368,17 +441,35 @@ public class GameScreen extends ViewportScreen {
 			Body bodyA = contact.getFixtureA().getBody();
 			Body bodyB = contact.getFixtureB().getBody();
 
-			if ((birdBody == bodyA && waterBody == bodyB) || (birdBody == bodyB && waterBody == bodyA)) {
-				buoyancyController.addBody(birdBody);
+			if (bodyA == waterBody) {
+				buoyancyController.addBody(bodyB);
+			} else if (bodyB == waterBody) {
+				buoyancyController.addBody(bodyA);
+			} else if ((bodyA == birdBody && bodyB == fishBody) || (bodyA == fishBody && bodyB == birdBody)) {
+				fishState = FishState.GONE;
 			}
 		}
 
 		@Override public void endContact(Contact contact) {
+			if (contact.getFixtureA() == null || contact.getFixtureB() == null) return;
+
 			Body bodyA = contact.getFixtureA().getBody();
 			Body bodyB = contact.getFixtureB().getBody();
 
-			if ((birdBody == bodyA && waterBody == bodyB) || (birdBody == bodyB && waterBody == bodyA)) {
-				buoyancyController.removeBody(birdBody);
+			if (bodyA == waterBody) {
+				buoyancyController.removeBody(bodyB);
+				if (bodyB == birdBody && fishState == FishState.GONE) {
+					fishState = FishState.SPAWNABLE;
+				} else if (bodyB == fishBody) {
+					fishState = FishState.GONE;
+				}
+			} else if (bodyB == waterBody) {
+				buoyancyController.removeBody(bodyA);
+				if (bodyA == birdBody && fishState == FishState.GONE) {
+					fishState = FishState.SPAWNABLE;
+				} else if (bodyA == fishBody) {
+					fishState = FishState.GONE;
+				}
 			}
 		}
 	}
