@@ -92,7 +92,6 @@ public final class EntityStore implements EntityManager {
 		if (componentId < 0) {
 			componentId = nextComponentId++;
 			componentIds.put(componentType, componentId);
-			System.out.println("Registered component \"" + componentType.getName() + "\", id: " + componentId + " (bitmask: " + (1 << componentId) + ")");
 		}
 
 		return componentId;

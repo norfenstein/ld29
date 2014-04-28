@@ -7,6 +7,7 @@ import norfenstein.ld29.LD29;
 public class DesktopLauncher {
 	public static void main (String[] arg) {
 		LwjglApplicationConfiguration config = new LwjglApplicationConfiguration();
+		config.title = "Splashy Bird!";
 		config.width = 480;
 		config.height = 640;
 		new LwjglApplication(new LD29(), config);
