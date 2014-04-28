@@ -64,8 +64,13 @@ public class GameScreen extends ViewportScreen {
 	private BuoyancyController buoyancyController;
 	private FishState fishState;
 
+	private SoundManager soundManager;
+
 	public void create() {
 		initializeViewport(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), FixedAxis.HORIZONTAL, UNITS_PER_SCREEN);
+
+		soundManager = new SoundManager();
+		soundManager.create();
 
 		world = new World(new Vector2(0, -GRAVITY), true);
 		world.setContactListener(new CollisionHandler());
@@ -101,7 +106,9 @@ public class GameScreen extends ViewportScreen {
 	public void dispose() {
 		world.dispose();
 		shapeRenderSystem.dispose();
+		soundManager.dispose();
 	}
+
 
 	@Override public void step(float delta) {
 		world.step(delta, 6, 2);
@@ -265,7 +272,6 @@ public class GameScreen extends ViewportScreen {
 		bodyDef.position.x = goingRight ?
 			-pixelsToUnits(getViewport().getViewportWidth()) / 2 :
 			pixelsToUnits(getViewport().getViewportWidth()) / 2;
-		System.out.println("goingRight: " + goingRight + " " + bodyDef.position.x);
 		bodyDef.position.y = waterBody.getPosition().y + WATER_DEPTH / 2 - fishSize * WATER_DEPTH;
 
 		Body body = world.createBody(bodyDef);
@@ -464,11 +470,13 @@ public class GameScreen extends ViewportScreen {
 			Body bodyB = contact.getFixtureB().getBody();
 
 			if (bodyA == waterBody) {
-				buoyancyController.addBody(bodyB);
+				beginContactWaterAny(bodyB);
+				if (bodyB == birdBody) beginContactBirdWater(birdBody, waterBody);
 			} else if (bodyB == waterBody) {
-				buoyancyController.addBody(bodyA);
+				beginContactWaterAny(bodyA);
+				if (bodyA == birdBody) beginContactBirdWater(birdBody, waterBody);
 			} else if ((bodyA == birdBody && bodyB == fishBody) || (bodyA == fishBody && bodyB == birdBody)) {
-				fishState = FishState.EATEN;
+				beginContactBirdFish(birdBody, fishBody);
 			}
 		}
 
@@ -479,20 +487,44 @@ public class GameScreen extends ViewportScreen {
 			Body bodyB = contact.getFixtureB().getBody();
 
 			if (bodyA == waterBody) {
-				buoyancyController.removeBody(bodyB);
-				if (bodyB == birdBody && fishState == FishState.EATEN) {
-					fishState = FishState.SPAWNABLE;
+				endContactWaterAny(bodyB);
+				if (bodyB == birdBody) {
+					endContactBirdWater(birdBody, waterBody);
 				} else if (bodyB == fishBody) {
-					fishState = FishState.GONE;
+					endContactFishWater();
 				}
 			} else if (bodyB == waterBody) {
-				buoyancyController.removeBody(bodyA);
-				if (bodyA == birdBody && fishState == FishState.EATEN) {
-					fishState = FishState.SPAWNABLE;
+				endContactWaterAny(bodyB);
+				if (bodyA == birdBody) {
+					endContactBirdWater(birdBody, waterBody);
 				} else if (bodyA == fishBody) {
-					fishState = FishState.GONE;
+					endContactFishWater();
 				}
 			}
+		}
+
+		private void beginContactWaterAny(Body any) {
+			buoyancyController.addBody(any);
+		}
+		private void beginContactBirdWater(Body bird, Body water) {
+			soundManager.getSplash().play();
+		}
+		private void beginContactBirdFish(Body bird, Body fish) {
+			fishState = FishState.EATEN;
+			soundManager.getGulp().play();
+		}
+
+		private void endContactWaterAny(Body any) {
+			buoyancyController.removeBody(any);
+		}
+		private void endContactBirdWater(Body bird, Body water) {
+			if (fishState == FishState.EATEN) {
+				fishState = FishState.SPAWNABLE;
+			}
+			soundManager.getSplash().play(0.3f);
+		}
+		private void endContactFishWater() {
+			fishState = FishState.GONE;
 		}
 	}
 }
