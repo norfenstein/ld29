@@ -422,7 +422,7 @@ public class GameScreen extends ViewportScreen {
 		float bufferSize = 1f; //a little more than bird's radius, to avoid scraping the edge on the upswing
 		float birdX = birdBody.getPosition().x;
 		float birdY = birdBody.getPosition().y;
-		float targetY = waterBody.getPosition().y;
+		float targetY = fishBody != null ? fishBody.getPosition().y : waterBody.getPosition().y;
 		if (targetY > birdY) targetY = -fieldEdgeY + bufferSize;
 		float idealRadius = birdY - targetY;
 
