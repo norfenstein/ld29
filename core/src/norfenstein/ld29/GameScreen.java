@@ -66,6 +66,8 @@ public class GameScreen extends ViewportScreen {
 
 	private SoundManager soundManager;
 
+	private float inputTimer;
+
 	public void create() {
 		initializeViewport(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), FixedAxis.HORIZONTAL, UNITS_PER_SCREEN);
 
@@ -109,7 +111,6 @@ public class GameScreen extends ViewportScreen {
 		soundManager.dispose();
 	}
 
-
 	@Override public void step(float delta) {
 		world.step(delta, 6, 2);
 
@@ -152,9 +153,18 @@ public class GameScreen extends ViewportScreen {
 	}
 
 	@Override public void processInput(float delta) {
-		if (Gdx.input.isKeyPressed(Input.Keys.DOWN)) {
-			birdBody.applyForce(new Vector2(0, -DIVE_FORCE), birdBody.getWorldCenter(), true);
+		if (Gdx.input.isKeyPressed(Input.Keys.SPACE) || Gdx.input.isTouched(0)) {
+			if (inputTimer <= 0) {
+				birdBody.applyForce(new Vector2(0, -DIVE_FORCE), birdBody.getWorldCenter(), true);
+			} else {
+				inputTimer -= delta;
+			}
 		}
+	}
+
+	private void flap() {
+		birdBody.applyLinearImpulse(new Vector2(0, flapImpulse), birdBody.getWorldCenter(), true);
+		flapImpulse = 0f;
 	}
 
 	@Override public boolean keyDown(int keycode) {
@@ -165,28 +175,9 @@ public class GameScreen extends ViewportScreen {
 				Gdx.app.exit();
 				return true;
 
-			case Input.Keys.UP:
 			case Input.Keys.SPACE:
 				if (divingJoint != null) destroyDivingJoint();
-				birdBody.applyLinearImpulse(new Vector2(0, flapImpulse), birdBody.getWorldCenter(), true);
-				flapImpulse = 0f;
-				return true;
-
-			case Input.Keys.LEFT:
-				if (divingJoint != null) destroyDivingJoint();
-				birdBody.applyLinearImpulse(new Vector2(0, flapImpulse).rotate(30), birdBody.getWorldCenter(), true);
-				flapImpulse = 0f;
-				return true;
-
-			case Input.Keys.RIGHT:
-				if (divingJoint != null) destroyDivingJoint();
-				birdBody.applyLinearImpulse(new Vector2(0, flapImpulse).rotate(-30), birdBody.getWorldCenter(), true);
-				flapImpulse = 0f;
-				return true;
-
-			case Input.Keys.DOWN:
-				if (divingJoint != null) destroyDivingJoint();
-				flapImpulse = 0f;
+				inputTimer = 0.3f;
 				return true;
 		}
 
@@ -195,12 +186,31 @@ public class GameScreen extends ViewportScreen {
 
 	@Override public boolean keyUp(int keycode) {
 		switch (keycode) {
-			case Input.Keys.DOWN:
-				addDivingJoint();
+			case Input.Keys.SPACE:
+				if (inputTimer > 0) {
+					flap();
+				} else {
+					addDivingJoint();
+				}
 				return true;
 		}
 
 		return false;
+	}
+
+	@Override public boolean touchDown(int screenX, int screenY, int pointer, int button) {
+		if (divingJoint != null) destroyDivingJoint();
+		inputTimer = 0.3f;
+		return true;
+	}
+
+	@Override public boolean touchUp(int screenX, int screenY, int pointer, int button) {
+		if (inputTimer > 0) {
+			flap();
+		} else {
+			addDivingJoint();
+		}
+		return true;
 	}
 
 	private void addAnchor() {
